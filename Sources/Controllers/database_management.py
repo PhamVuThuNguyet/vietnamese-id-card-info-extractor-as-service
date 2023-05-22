@@ -4,7 +4,6 @@ from Sources.Controllers import boto3_endpoint
 from botocore.exceptions import ClientError
 
 client = boto3_endpoint.create_boto_client('dynamodb')
-dynamodb = boto3_endpoint.create_boto_resource('dynamodb')
 
 
 def create_table(table_name):
@@ -31,9 +30,9 @@ def create_table(table_name):
 def delete_table(table_name):
     global client
 
-    table = dynamodb.Table(table_name)
-
-    response = table.delete()
+    response = client.delete_table(
+        TableName=table_name
+    )
 
     print(response)
 
