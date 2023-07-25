@@ -1,5 +1,8 @@
 import os
-
+import re
+import pytesseract
+from pytesseract import Output
+import cv2
 import Sources.Controllers.config as cfg
 import numpy as np
 import yolov5
@@ -42,57 +45,73 @@ detector = Predictor(config)
 
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
-    if not os.path.isdir(UPLOAD_FOLDER):
-        os.mkdir(UPLOAD_FOLDER)
+async def upload(frontFile: UploadFile = File(...), backFile: UploadFile = File(...)):
+    try:
+        if not os.path.isdir(UPLOAD_FOLDER):
+            os.mkdir(UPLOAD_FOLDER)
 
-    input_images_list = os.listdir(UPLOAD_FOLDER)
-    if input_images_list is not None:
-        for uploaded_image in input_images_list:
-            os.remove(os.path.join(UPLOAD_FOLDER, uploaded_image))
+        input_images_list = os.listdir(UPLOAD_FOLDER)
+        if input_images_list is not None:
+            for uploaded_image in input_images_list:
+                os.remove(os.path.join(UPLOAD_FOLDER, uploaded_image))
 
-    file_location = f'./{UPLOAD_FOLDER}/{file.filename}'
-    data = await file.read()
+        front_file_location = f'{UPLOAD_FOLDER}/{frontFile.filename}'
+        back_file_location = f'{UPLOAD_FOLDER}/{backFile.filename}'
 
-    with open(file_location, 'wb') as f:
-        f.write(data)
+        """FRONT FILE"""
+        front_data = await frontFile.read()
+        with open(front_file_location, 'wb') as f:
+            f.write(front_data)
 
-    # Validating file
-    input_file = os.listdir(UPLOAD_FOLDER)[0]
-    if input_file == 'NULL':
-        os.remove(os.path.join(UPLOAD_FOLDER, input_file))
-        error = "No file selected!"
-        return JSONResponse(status_code=403, content={"message": error})
+        """BACK FILE"""
+        back_data = await backFile.read()
+        with open(back_file_location, 'wb') as f:
+            f.write(back_data)
 
-    elif input_file == "WRONG_EXTS":
-        os.remove(os.path.join(UPLOAD_FOLDER, input_file))
-        error = "This file is not supported"
-        return JSONResponse(status_code=404, content={"message": error})
+        # Validating file
+        input_files = os.listdir(UPLOAD_FOLDER)[:2]
+        for input_file in input_files:
+            if input_file == 'NULL':
+                os.remove(os.path.join(UPLOAD_FOLDER, input_file))
+                error = "No file selected!"
+                return JSONResponse(status_code=403, content={"errorCode": 403, "errorMessage": error, "data": []})
 
-    return await extract_info()
+            elif input_file == "WRONG_EXTS":
+                os.remove(os.path.join(UPLOAD_FOLDER, input_file))
+                error = "This file is not supported"
+                return JSONResponse(status_code=404, content={"errorCode": 404, "errorMessage": error, "data": []})
+
+        """TODO: Preprocessing to crop image"""
+
+        return await extract_info()
+
+    except Exception as e:
+        return JSONResponse(status_code=501, content={"errorCode": 501, "errorMessage": e, "data": []})
 
 
 @app.post("/extract")
-async def extract_info(path_id=None):
+async def extract_info():
     global OFFSET, NMS_THRESHOLD
 
     # Check if uploaded image exists
     input_images_list = os.listdir(UPLOAD_FOLDER)
-    if input_images_list is not None:
-        img = os.path.join(UPLOAD_FOLDER, input_images_list[0])
+    if input_images_list is not None and len(input_images_list) >= 2:
+        front_image = os.path.join(UPLOAD_FOLDER, input_images_list[0])
+        back_image = os.path.join(UPLOAD_FOLDER, input_images_list[1])
 
+    """FRONT IMAGE"""
     # Detect corner
-    corner_model = CORNER_MODEL(img)
+    corner_model = CORNER_MODEL(front_image)
     predictions = corner_model.pred[0]
     categories = predictions[:, 5].tolist()  # get class
     if len(categories) != 4:
         error = "Detecting corner failed"
-        return JSONResponse(status_code=401, content={"message": error})
+        return JSONResponse(status_code=401, content={"errorCode": 401, "errorMessage": error, "data": []})
 
     # get coordinates of corner boxes(x1, x2, y1, y2)
     boxes = utils.class_order(predictions[:, :4].tolist(), categories)
 
-    image = Image.open(img)
+    image = Image.open(front_image)
     center_points = list(map(utils.get_center_point, boxes))
 
     """TODO: Temporary fixing"""
@@ -111,11 +130,11 @@ async def extract_info(path_id=None):
 
     if 7 not in categories and len(categories) < 9:
         error = "Missing fields! Detecting content failed!"
-        return JSONResponse(status_code=402, content={"message": error})
+        return JSONResponse(status_code=402, content={"errorCode": 402, "errorMessage": error, "data": []})
 
     elif 7 in categories and len(categories) < 10:
         error = "Missing fields! Detecting content failed!"
-        return JSONResponse(status_code=402, content={"message": error})
+        return JSONResponse(status_code=402, content={"errorCode": 402, "errorMessage": error, "data": []})
 
     boxes = predictions[:, :4].tolist()
 
@@ -155,8 +174,40 @@ async def extract_info(path_id=None):
         face_id = rekognition.add_face_to_collection(face_img_path)
         database_management.add_record_to_db(detected_fields, face_id, 'clients')
 
+    """BACK IMAGE"""
+    back_image_data = cv2.imread(back_image)
+    d = pytesseract.image_to_data(back_image_data, output_type=Output.DICT)
+
+    date_pattern = '^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[012])/(19|20)\d\d$'
+
+    n_boxes = len(d['text'])
+    date_of_issue = None
+    for i in range(n_boxes):
+        if int(d['conf'][i]) > 80:
+            if re.match(date_pattern, d['text'][i]):
+                date_of_issue = d['text'][i] 
+
+    if date_of_issue == None:
+        error = "Missing fields! Cannot detect date of issue!"
+        return JSONResponse(status_code=402, content={"errorCode": 402, "errorMessage": error, "data": []})
+
     response = {
-        "data": detected_fields
+        "errorCode": 0,
+        "errorMessage": '',
+        "data": [
+            {
+                "No.": detected_fields[0],
+                "fullName": detected_fields[1],
+                "dob": detected_fields[2],
+                "sex": detected_fields[3],
+                "nationality": detected_fields[4],
+                "dateOfExpiry": detected_fields[7]
+            },
+            {
+                'placeOfIssue': 'Cục Cảnh sát Quản lý hành chính về trật tự xã hội',
+                'dateOfIssue': date_of_issue
+            }
+        ]
     }
 
     response = jsonable_encoder(response)

@@ -1,0 +1,9 @@
+.idea
+include
+Lib
+Scripts
+share
+.gitignore
+Dockerfile
+pyvenv.cfg
+README.md

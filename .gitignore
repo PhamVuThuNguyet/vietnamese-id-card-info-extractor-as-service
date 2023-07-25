@@ -5,3 +5,5 @@ Scripts
 share
 Sources/Controllers/config.py
 pyvenv.cfg
+Sources/Statics/results
+Sources/Statics/uploads
