@@ -1,9 +1,9 @@
 # created by virtualenv automatically
+.idea
 include
 Lib
 Scripts
 share
-Sources/Controllers/config.py
 pyvenv.cfg
-Sources/Statics/results
-Sources/Statics/uploads
+FrontImage/Sources/Statics/results
+FrontImage/Sources/Statics/uploads
