@@ -2,7 +2,7 @@ import os
 import Sources.Controllers.config as cfg
 import numpy as np
 import yolov5
-from PIL import Image
+from PIL import Image, ImageOps
 from Sources import app
 from Sources.Controllers import utils
 from fastapi import UploadFile, File
@@ -10,6 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from vietocr.tool.config import Cfg
 from vietocr.tool.predictor import Predictor
+from datetime import datetime
 
 """ ---- Setup ---- """
 # Constant
@@ -97,8 +98,7 @@ async def extract_info():
 
     # get coordinates of corner boxes(x1, x2, y1, y2)
     boxes = utils.class_order(predictions[:, :4].tolist(), categories)
-
-    image = Image.open(front_image)
+    
     center_points = list(map(utils.get_center_point, boxes))
 
     """TODO: Temporary fixing"""
@@ -107,6 +107,9 @@ async def extract_info():
 
     center_points = [center_points[0], center_points[1], c2_fix, c3_fix]
     center_points = np.asarray(center_points)
+    
+    image = Image.open(front_image)
+    image = ImageOps.exif_transpose(image)
 
     aligned = utils.four_point_transform(image, center_points)
     aligned = Image.fromarray(aligned)
@@ -144,6 +147,8 @@ async def extract_info():
         cropped_image = aligned.crop((left, top, right, bottom))
         cropped_image.save(os.path.join(SAVE_DIR, f'{index}.jpg'))
 
+    aligned.save(os.path.join(SAVE_DIR, f'test.jpg'))
+    
     detected_fields = []  # Collecting all detected parts
     for idx, img_crop in enumerate(sorted(os.listdir(SAVE_DIR))):
         if idx > 0:
@@ -162,6 +167,12 @@ async def extract_info():
     #     face_id = rekognition.add_face_to_collection(face_img_path)
     #     database_management.add_record_to_db(detected_fields, face_id, 'clients')
 
+    format = "%d/%m/%Y"
+    if not bool(datetime.strptime(detected_fields[7], format)):
+        detected_fields[7] = None
+    
+    if not bool(datetime.strptime(detected_fields[2], format)):
+        detected_fields[2] = None
    
     response = {
         "errorCode": 0,

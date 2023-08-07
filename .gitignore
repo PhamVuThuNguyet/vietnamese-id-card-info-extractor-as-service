@@ -7,3 +7,5 @@ share
 pyvenv.cfg
 FrontImage/Sources/Statics/results
 FrontImage/Sources/Statics/uploads
+BackImage/Sources/Statics/results
+BackImage/Sources/Statics/uploads

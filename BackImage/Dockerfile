@@ -6,7 +6,7 @@ RUN mkdir -p ${LAMBDA_TASK_ROOT}/Sources
 COPY . .
 RUN pip3 install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
 
-RUN yum update -y && yum -y install tar gzip zlib freetype-devel \
+RUN yum update -y && yum -y install mesa-libGL tar gzip zlib freetype-devel \
                                         gcc \
                                         ghostscript \
                                         lcms2-devel \
