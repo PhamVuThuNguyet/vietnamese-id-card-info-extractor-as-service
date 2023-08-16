@@ -133,19 +133,19 @@ async def extract_info():
     boxes, categories = utils.non_maximum_suppression(np.array(boxes), categories, NMS_THRESHOLD)
 
     boxes = utils.class_order(boxes, categories)
-
     if not os.path.isdir(SAVE_DIR):
         os.makedirs(SAVE_DIR)
     else:
         for f in os.listdir(SAVE_DIR):
             os.remove(os.path.join(SAVE_DIR, f))
 
+    categories = sorted(categories)
     for index, box in enumerate(boxes):
         left, top, right, bottom = box
         if 5 < index < 9:
             right = right + 100
         cropped_image = aligned.crop((left, top, right, bottom))
-        cropped_image.save(os.path.join(SAVE_DIR, f'{index}.jpg'))
+        cropped_image.save(os.path.join(SAVE_DIR, f'{int(categories[index])}.jpg'))
 
     aligned.save(os.path.join(SAVE_DIR, f'test.jpg'))
     
@@ -166,13 +166,14 @@ async def extract_info():
     # else:
     #     face_id = rekognition.add_face_to_collection(face_img_path)
     #     database_management.add_record_to_db(detected_fields, face_id, 'clients')
-
+   
     format = "%d/%m/%Y"
     if not bool(datetime.strptime(detected_fields[7], format)):
         detected_fields[7] = None
     
     if not bool(datetime.strptime(detected_fields[2], format)):
         detected_fields[2] = None
+
    
     response = {
         "errorCode": 0,
