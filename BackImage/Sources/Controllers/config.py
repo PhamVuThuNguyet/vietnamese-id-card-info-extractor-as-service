@@ -1,9 +1,5 @@
 PORT = 8081
 
-CONF_CORNER_THRESHOLD = 0.8
-IOU_CORNER_THRESHOLD = 0.5
-
-CORNER_MODEL_PATH = "Sources/Statics/weights/corner.pt"
 DEVICE = "cpu"  # or "cuda:0" if using GPU
 
 # Config directory
