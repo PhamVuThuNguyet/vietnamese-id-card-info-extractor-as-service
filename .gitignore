@@ -9,4 +9,4 @@ FrontImage/Sources/Statics/results
 FrontImage/Sources/Statics/uploads
 BackImage/Sources/Statics/results
 BackImage/Sources/Statics/uploads
-smartos-id-card.pem
+*.pem

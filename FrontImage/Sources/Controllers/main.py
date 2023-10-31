@@ -99,10 +99,10 @@ async def upload(frontFile: UploadFile = File(...)):
         return await extract_info()
 
     except Exception as e:
-        logging.error(e)
+        print(e)
         return JSONResponse(
             status_code=500,
-            content={"errorCode": 500, "errorMessage": str(e), "data": []},
+            content={"errorCode": 500, "errorMessage": e, "data": []},
         )
 
 
