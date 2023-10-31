@@ -87,7 +87,7 @@ async def extract_info():
         # Use the detect_and_decode function to get the decoded QR data
         decoded_text = qreader.detect_and_decode(image=image)
         print(decoded_text)
-        if not decoded_text:
+        if decoded_text == None:
             return JSONResponse(
                 status_code=500,
                 content={
