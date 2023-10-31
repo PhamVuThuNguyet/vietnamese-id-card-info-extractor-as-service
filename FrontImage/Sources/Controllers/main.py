@@ -102,7 +102,7 @@ async def upload(frontFile: UploadFile = File(...)):
         print(e)
         return JSONResponse(
             status_code=500,
-            content={"errorCode": 500, "errorMessage": e, "data": []},
+            content={"errorCode": 500, "errorMessage": str(e), "data": []},
         )
 
 

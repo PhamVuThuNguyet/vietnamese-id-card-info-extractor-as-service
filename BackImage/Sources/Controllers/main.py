@@ -65,6 +65,7 @@ async def upload(backFile: UploadFile = File(...)):
         return await extract_info()
 
     except Exception as e:
+        print(e)
         return JSONResponse(
             status_code=500,
             content={
@@ -117,6 +118,7 @@ async def extract_info():
 
         return JSONResponse(content=response)
     except Exception as e:
+        print(e)
         return JSONResponse(
             status_code=500,
             content={
