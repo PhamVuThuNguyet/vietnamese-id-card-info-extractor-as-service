@@ -99,7 +99,7 @@ async def upload(frontFile: UploadFile = File(...)):
         return await extract_info()
 
     except Exception as e:
-        print(e)
+        logging.exception(e)
         return JSONResponse(
             status_code=500,
             content={"errorCode": 500, "errorMessage": str(e), "data": []},
@@ -108,186 +108,199 @@ async def upload(frontFile: UploadFile = File(...)):
 
 @app.post("/extractFront")
 async def extract_info():
-    global OFFSET, NMS_THRESHOLD
+    try:
+        global OFFSET, NMS_THRESHOLD
 
-    # Check if uploaded image exists
-    input_images_list = os.listdir(UPLOAD_FOLDER)
-    if input_images_list is not None:
-        front_image = f"{UPLOAD_FOLDER}/frontFile.jpg"
+        # Check if uploaded image exists
+        input_images_list = os.listdir(UPLOAD_FOLDER)
+        if input_images_list is not None:
+            front_image = f"{UPLOAD_FOLDER}/frontFile.jpg"
 
-    with open(front_image, "rb") as f:
-        files = {"backFile": (front_image, f)}
+        with open(front_image, "rb") as f:
+            files = {"backFile": (front_image, f)}
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(BACK_API, files=files)
+            async with httpx.AsyncClient() as client:
+                response = await client.post(BACK_API, files=files)
 
-    if response.json()["errorCode"] == 0:
-        data = response.json()["data"][0]
-        print(data)
-        issue_age = (
-            int(data["doi"].split("/")[-1])
-            - int(data["dob"].split("/")[-1])
-            - (
-                (int(data["doi"].split("/")[1]), int(data["doi"].split("/")[0]))
-                < (int(data["dob"].split("/")[1]), int(data["dob"].split("/")[0]))
+        if response.json()["errorCode"] == 0:
+            data = response.json()["data"][0]
+            print(data)
+            issue_age = (
+                int(data["doi"].split("/")[-1])
+                - int(data["dob"].split("/")[-1])
+                - (
+                    (int(data["doi"].split("/")[1]), int(data["doi"].split("/")[0]))
+                    < (int(data["dob"].split("/")[1]), int(data["dob"].split("/")[0]))
+                )
             )
-        )
-        if issue_age >= 14 and issue_age < 23:
-            doe = (
-                str(data["dob"].split("/")[0])
-                + "/"
-                + str(data["dob"].split("/")[1])
-                + "/"
-                + str(int(data["dob"].split("/")[-1]) + 25)
-            )
-        elif issue_age >= 23 and issue_age < 38:
-            doe = (
-                str(data["dob"].split("/")[0])
-                + "/"
-                + str(data["dob"].split("/")[1])
-                + "/"
-                + str(int(data["dob"].split("/")[-1]) + 40)
-            )
+            if issue_age >= 14 and issue_age < 23:
+                doe = (
+                    str(data["dob"].split("/")[0])
+                    + "/"
+                    + str(data["dob"].split("/")[1])
+                    + "/"
+                    + str(int(data["dob"].split("/")[-1]) + 25)
+                )
+            elif issue_age >= 23 and issue_age < 38:
+                doe = (
+                    str(data["dob"].split("/")[0])
+                    + "/"
+                    + str(data["dob"].split("/")[1])
+                    + "/"
+                    + str(int(data["dob"].split("/")[-1]) + 40)
+                )
+            else:
+                doe = (
+                    str(data["dob"].split("/")[0])
+                    + "/"
+                    + str(data["dob"].split("/")[1])
+                    + "/"
+                    + str(int(data["dob"].split("/")[-1]) + 60)
+                )
+            response = {
+                "errorCode": 0,
+                "errorMessage": "",
+                "data": [
+                    {
+                        "No.": data["No."],
+                        "fullName": data["fullName"],
+                        "dob": data["dob"],
+                        "sex": data["sex"],
+                        "nationality": "Việt Nam",
+                        "dateOfExpiry": doe,
+                    },
+                    {
+                        "placeOfIssue": "Cục Cảnh sát Quản lý hành chính về trật tự xã hội",
+                        "dateOfIssue": data["doi"],
+                    },
+                ],
+            }
+            response = jsonable_encoder(response)
+
+            return JSONResponse(content=response)
         else:
-            doe = (
-                str(data["dob"].split("/")[0])
-                + "/"
-                + str(data["dob"].split("/")[1])
-                + "/"
-                + str(int(data["dob"].split("/")[-1]) + 60)
+            """FRONT IMAGE"""
+            # Detect corner
+            front_image = f"{UPLOAD_FOLDER}/frontFile.jpg"
+            corner_model = CORNER_MODEL(front_image)
+            predictions = corner_model.pred[0]
+            categories = predictions[:, 5].tolist()  # get class
+            if len(categories) != 4:
+                error = "Detecting corner failed"
+                return JSONResponse(
+                    status_code=500,
+                    content={"errorCode": 500, "errorMessage": error, "data": []},
+                )
+
+            # get coordinates of corner boxes(x1, x2, y1, y2)
+            boxes = utils.class_order(predictions[:, :4].tolist(), categories)
+
+            center_points = list(map(utils.get_center_point, boxes))
+
+            """TODO: Temporary fixing"""
+            c2, c3 = center_points[2], center_points[3]
+            c2_fix, c3_fix = (c2[0], c2[1] + OFFSET), (c3[0], c3[1] + OFFSET)
+
+            center_points = [center_points[0], center_points[1], c2_fix, c3_fix]
+            center_points = np.asarray(center_points)
+
+            image = Image.open(front_image)
+            image = ImageOps.exif_transpose(image)
+
+            aligned = utils.four_point_transform(image, center_points)
+            aligned = Image.fromarray(aligned)
+            aligned = aligned.convert("RGB")
+
+            content_model = CONTENT_MODEL(aligned)
+            predictions = content_model.pred[0]
+            categories = predictions[:, 5].tolist()  # get class
+
+            if 7 not in categories and len(categories) < 9:
+                error = "Missing fields! Detecting content failed!"
+                return JSONResponse(
+                    status_code=500,
+                    content={"errorCode": 500, "errorMessage": error, "data": []},
+                )
+
+            elif 7 in categories and len(categories) < 10:
+                error = "Missing fields! Detecting content failed!"
+                return JSONResponse(
+                    status_code=500,
+                    content={"errorCode": 500, "errorMessage": error, "data": []},
+                )
+
+            boxes = predictions[:, :4].tolist()
+
+            """Non Maximum Suppression"""
+            boxes, categories = utils.non_maximum_suppression(
+                np.array(boxes), categories, NMS_THRESHOLD
             )
-        response = {
-            "errorCode": 0,
-            "errorMessage": "",
-            "data": [
-                {
-                    "No.": data["No."],
-                    "fullName": data["fullName"],
-                    "dob": data["dob"],
-                    "sex": data["sex"],
-                    "nationality": "Việt Nam",
-                    "dateOfExpiry": doe,
-                },
-                {
-                    "placeOfIssue": "Cục Cảnh sát Quản lý hành chính về trật tự xã hội",
-                    "dateOfIssue": data["doi"],
-                },
-            ],
-        }
+
+            boxes = utils.class_order(boxes, categories)
+            if not os.path.isdir(SAVE_DIR):
+                os.makedirs(SAVE_DIR)
+            else:
+                for f in os.listdir(SAVE_DIR):
+                    os.remove(os.path.join(SAVE_DIR, f))
+
+            categories = sorted(categories)
+            for index, box in enumerate(boxes):
+                left, top, right, bottom = box
+                if 5 < index < 9:
+                    right = right + 100
+                cropped_image = aligned.crop((left, top, right, bottom))
+                cropped_image.save(
+                    os.path.join(SAVE_DIR, f"{int(categories[index])}.jpg")
+                )
+
+            detected_fields = []  # Collecting all detected parts
+            for idx, img_crop in enumerate(sorted(os.listdir(SAVE_DIR))):
+                if idx > 0:
+                    img_ = Image.open(os.path.join(SAVE_DIR, img_crop))
+                    s = detector.predict(img_)
+                    detected_fields.append(s)
+
+            if 7 in categories:
+                detected_fields = (
+                    detected_fields[:6]
+                    + [detected_fields[6] + ", " + detected_fields[7]]
+                    + [detected_fields[8]]
+                )
+
+            # face_img_path = os.path.join(SAVE_DIR, f'0.jpg')
+
+            # if rekognition.check_existed_face(face_img_path) != None:
+            #     print("EXISTED FACE!")
+            # else:
+            #     face_id = rekognition.add_face_to_collection(face_img_path)
+            #     database_management.add_record_to_db(detected_fields, face_id, 'clients')
+
+            response = {
+                "errorCode": 500,
+                "errorMessage": "Cannot Detect Date Of Issue!",
+                "data": [
+                    {
+                        "No.": detected_fields[0],
+                        "fullName": detected_fields[1],
+                        "dob": detected_fields[2],
+                        "sex": detected_fields[3],
+                        "nationality": detected_fields[4],
+                        "dateOfExpiry": detected_fields[7],
+                    },
+                    {},
+                ],
+            }
+
         response = jsonable_encoder(response)
 
         return JSONResponse(content=response)
-    else:
-        """FRONT IMAGE"""
-        # Detect corner
-        front_image = f"{UPLOAD_FOLDER}/frontFile.jpg"
-        corner_model = CORNER_MODEL(front_image)
-        predictions = corner_model.pred[0]
-        categories = predictions[:, 5].tolist()  # get class
-        if len(categories) != 4:
-            error = "Detecting corner failed"
-            return JSONResponse(
-                status_code=500,
-                content={"errorCode": 500, "errorMessage": error, "data": []},
-            )
-
-        # get coordinates of corner boxes(x1, x2, y1, y2)
-        boxes = utils.class_order(predictions[:, :4].tolist(), categories)
-
-        center_points = list(map(utils.get_center_point, boxes))
-
-        """TODO: Temporary fixing"""
-        c2, c3 = center_points[2], center_points[3]
-        c2_fix, c3_fix = (c2[0], c2[1] + OFFSET), (c3[0], c3[1] + OFFSET)
-
-        center_points = [center_points[0], center_points[1], c2_fix, c3_fix]
-        center_points = np.asarray(center_points)
-
-        image = Image.open(front_image)
-        image = ImageOps.exif_transpose(image)
-
-        aligned = utils.four_point_transform(image, center_points)
-        aligned = Image.fromarray(aligned)
-        aligned = aligned.convert("RGB")
-
-        content_model = CONTENT_MODEL(aligned)
-        predictions = content_model.pred[0]
-        categories = predictions[:, 5].tolist()  # get class
-
-        if 7 not in categories and len(categories) < 9:
-            error = "Missing fields! Detecting content failed!"
-            return JSONResponse(
-                status_code=500,
-                content={"errorCode": 500, "errorMessage": error, "data": []},
-            )
-
-        elif 7 in categories and len(categories) < 10:
-            error = "Missing fields! Detecting content failed!"
-            return JSONResponse(
-                status_code=500,
-                content={"errorCode": 500, "errorMessage": error, "data": []},
-            )
-
-        boxes = predictions[:, :4].tolist()
-
-        """Non Maximum Suppression"""
-        boxes, categories = utils.non_maximum_suppression(
-            np.array(boxes), categories, NMS_THRESHOLD
+    except Exception as e:
+        logging.exception(e)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "errorCode": 500,
+                "errorMessage": f"Fail to read! {str(e)}",
+                "data": [],
+            },
         )
-
-        boxes = utils.class_order(boxes, categories)
-        if not os.path.isdir(SAVE_DIR):
-            os.makedirs(SAVE_DIR)
-        else:
-            for f in os.listdir(SAVE_DIR):
-                os.remove(os.path.join(SAVE_DIR, f))
-
-        categories = sorted(categories)
-        for index, box in enumerate(boxes):
-            left, top, right, bottom = box
-            if 5 < index < 9:
-                right = right + 100
-            cropped_image = aligned.crop((left, top, right, bottom))
-            cropped_image.save(os.path.join(SAVE_DIR, f"{int(categories[index])}.jpg"))
-
-        detected_fields = []  # Collecting all detected parts
-        for idx, img_crop in enumerate(sorted(os.listdir(SAVE_DIR))):
-            if idx > 0:
-                img_ = Image.open(os.path.join(SAVE_DIR, img_crop))
-                s = detector.predict(img_)
-                detected_fields.append(s)
-
-        if 7 in categories:
-            detected_fields = (
-                detected_fields[:6]
-                + [detected_fields[6] + ", " + detected_fields[7]]
-                + [detected_fields[8]]
-            )
-
-        # face_img_path = os.path.join(SAVE_DIR, f'0.jpg')
-
-        # if rekognition.check_existed_face(face_img_path) != None:
-        #     print("EXISTED FACE!")
-        # else:
-        #     face_id = rekognition.add_face_to_collection(face_img_path)
-        #     database_management.add_record_to_db(detected_fields, face_id, 'clients')
-
-        response = {
-            "errorCode": 500,
-            "errorMessage": "Cannot Detect Date Of Issue!",
-            "data": [
-                {
-                    "No.": detected_fields[0],
-                    "fullName": detected_fields[1],
-                    "dob": detected_fields[2],
-                    "sex": detected_fields[3],
-                    "nationality": detected_fields[4],
-                    "dateOfExpiry": detected_fields[7],
-                },
-                {},
-            ],
-        }
-
-    response = jsonable_encoder(response)
-
-    return JSONResponse(content=response)

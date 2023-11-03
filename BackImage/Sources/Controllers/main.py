@@ -1,3 +1,4 @@
+import logging
 import os
 
 import cv2
@@ -65,7 +66,7 @@ async def upload(backFile: UploadFile = File(...)):
         return await extract_info()
 
     except Exception as e:
-        print(e)
+        logging.exception(e)
         return JSONResponse(
             status_code=500,
             content={
@@ -89,7 +90,7 @@ async def extract_info():
         print(decoded_text)
         if decoded_text[0] is None:
             return JSONResponse(
-                status_code=500,
+                status_code=200,
                 content={
                     "errorCode": 500,
                     "errorMessage": f"Fail to read QR Code!",
@@ -127,7 +128,7 @@ async def extract_info():
 
         return JSONResponse(content=response)
     except Exception as e:
-        print(e)
+        logging.exception(e)
         return JSONResponse(
             status_code=500,
             content={
