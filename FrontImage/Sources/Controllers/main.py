@@ -118,7 +118,7 @@ async def extract_info():
 
         with open(front_image, "rb") as f:
             files = {"backFile": (front_image, f)}
-            timeout = httpx.Timeout(connect=60.0, read=60.0, write=60.0)
+            timeout = httpx.Timeout(60.0, connect=60.0, read=60.0, write=60.0)
             with httpx.Client(timeout=timeout) as client:
                 response = await client.post(BACK_API, files=files)
 
